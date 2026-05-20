@@ -3,3 +3,5 @@ automatizacion_config.json
 tareas programadas/*
 automatizador_formularios.spec
 automatizacion_config_no_close_session.json
+__pycache__/
+venv

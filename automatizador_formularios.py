@@ -9,10 +9,15 @@ import keyboard
 import pytesseract
 from PIL import Image, ImageOps, ImageTk  
 import sys
+import shutil
 
 # Configuración de pytesseract
 try:
-    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+    tesseract_path = shutil.which('tesseract')
+    if tesseract_path:
+        pytesseract.pytesseract.tesseract_cmd = tesseract_path
+    else:
+        pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 except Exception as e:
     print(f"Error configurando Tesseract: {e}")
 
@@ -150,17 +155,26 @@ class AutomatizadorApp:
         frame.columnconfigure(0, weight=1)
 
     def log(self, mensaje):
-        timestamp = time.strftime("%H:%M:%S")
-        self.registro_text.insert(tk.END, f"[{timestamp}] {mensaje}\n")
-        self.registro_text.see(tk.END)
-        self.root.update()
+        def _update_log():
+            timestamp = time.strftime("%H:%M:%S")
+            self.registro_text.insert(tk.END, f"[{timestamp}] {mensaje}\n")
+            self.registro_text.see(tk.END)
+        self.root.after(0, _update_log)
 
     def cargar_configuracion(self):
         """Carga la configuración desde el archivo JSON"""
         try:
             if os.path.exists(CONFIG_FILE):
-                with open(CONFIG_FILE, 'r') as f:
-                    self.acciones = json.load(f)
+                try:
+                    with open(CONFIG_FILE, 'r') as f:
+                        self.acciones = json.load(f)
+                except json.JSONDecodeError as e:
+                    # Backup the corrupted file
+                    backup_file = f"{CONFIG_FILE}.bak"
+                    shutil.copy2(CONFIG_FILE, backup_file)
+                    messagebox.showerror("Error de Configuración",
+                                       f"El archivo de configuración está corrupto. Se ha creado un respaldo en '{backup_file}'.\n\nDetalles: {str(e)}")
+                    self.acciones = []
             else:
                 self.acciones = []
                 # Crear archivo vacío si no existe
@@ -888,7 +902,7 @@ class AutomatizadorApp:
                 continue
             
             tiempo_restante = int(timeout - (time.time() - start_time))
-            self.estado_label.config(text=f"Esperando texto... ({tiempo_restante}s)")
+            self.root.after(0, lambda tr=tiempo_restante: self.estado_label.config(text=f"Esperando texto... ({tr}s)"))
             time.sleep(1)
         
         self.log(f"Tiempo agotado sin encontrar: '{texto_esperado}'")
@@ -901,7 +915,7 @@ class AutomatizadorApp:
                 return False
                 
             self.log(f"Ejecutando: {accion['nombre']}")
-            self.estado_label.config(text=f"Ejecutando: {accion['nombre']}")
+            self.root.after(0, lambda n=accion['nombre']: self.estado_label.config(text=f"Ejecutando: {n}"))
             
             if accion['tipo'] == "terminar":
                 self.log("Acción 'Terminar proceso' detectada - finalizando ejecución")
@@ -927,9 +941,18 @@ class AutomatizadorApp:
         if not self.acciones:
             messagebox.showwarning("Advertencia", "No hay acciones configuradas para ejecutar")
             return
-    
+
+        if hasattr(self, '_ejecutando') and self._ejecutando:
+            self.log("Ya hay una ejecución en curso.")
+            return
+
+        # Ejecutar en hilo separado para evitar bloquear UI
+        threading.Thread(target=self._hilo_ejecutar_automatizacion, daemon=True).start()
+
+    def _hilo_ejecutar_automatizacion(self):
+        self._ejecutando = True
         self.log("\nIniciando ejecución manual...")
-        self.estado_label.config(text="Ejecutando...", foreground="blue")
+        self.root.after(0, lambda: self.estado_label.config(text="Ejecutando...", foreground="blue"))
     
         # Guardar estado de ejecución automática y forzar modo manual
         estado_previo = self.ejecucion_automatica
@@ -941,7 +964,7 @@ class AutomatizadorApp:
                     break
                 
                 self.log(f"\nProcesando acción {i}/{len(self.acciones)}: {accion['nombre']}")
-                self.estado_label.config(text=f"Procesando: {accion['nombre']}")
+                self.root.after(0, lambda n=accion['nombre']: self.estado_label.config(text=f"Procesando: {n}"))
             
                 if accion['tipo'] == "condicional":
                     # Ejecutar lógica condicional
@@ -984,16 +1007,17 @@ class AutomatizadorApp:
                 time.sleep(0.3)
         
             self.log("\nEjecución completada")
-            self.estado_label.config(text="Listo", foreground="green")
+            self.root.after(0, lambda: self.estado_label.config(text="Listo", foreground="green"))
         except pyautogui.FailSafeException:
             self.log("\nEjecución cancelada por failsafe (mouse en esquina)")
-            self.estado_label.config(text="Detenido", foreground="red")
+            self.root.after(0, lambda: self.estado_label.config(text="Detenido", foreground="red"))
         except Exception as e:
             self.log(f"\nError durante la ejecución: {str(e)}")
-            self.estado_label.config(text="Error", foreground="red")
+            self.root.after(0, lambda: self.estado_label.config(text="Error", foreground="red"))
         finally:
             # Restaurar estado original
             self.ejecucion_automatica = estado_previo
+            self._ejecutando = False
 
     def iniciar_automatico(self):
         if not self.acciones:
@@ -1008,22 +1032,22 @@ class AutomatizadorApp:
 
     def ciclo_automatico(self):
         while self.ejecucion_automatica:
-            self.ejecutar_automatizacion()
+            self._hilo_ejecutar_automatizacion()
             if not self.ejecucion_automatica:
                 break
                 
             for i in range(self.intervalo, 0, -1):
                 if not self.ejecucion_automatica:
                     break
-                self.estado_label.config(text=f"Esperando... {i}s")
+                self.root.after(0, lambda tr=i: self.estado_label.config(text=f"Esperando... {tr}s"))
                 time.sleep(1)
         
-        self.estado_label.config(text="Listo", foreground="green")
+        self.root.after(0, lambda: self.estado_label.config(text="Listo", foreground="green"))
 
     def detener_ejecucion(self):
         self.ejecucion_automatica = False
         self.log("Ejecución detenida por el usuario")
-        self.estado_label.config(text="Detenido", foreground="red")
+        self.root.after(0, lambda: self.estado_label.config(text="Detenido", foreground="red"))
 
 if __name__ == "__main__":
     root = tk.Tk()
