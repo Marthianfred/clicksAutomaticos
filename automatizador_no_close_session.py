@@ -7,10 +7,15 @@ import keyboard
 import pytesseract
 from PIL import Image, ImageOps
 import sys
+import shutil
 
 # Configuración de pytesseract (ajusta según tu sistema)
 try:
-    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+    tesseract_path = shutil.which('tesseract')
+    if tesseract_path:
+        pytesseract.pytesseract.tesseract_cmd = tesseract_path
+    else:
+        pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 except Exception as e:
     print(f"Error configurando Tesseract: {e}")
 
@@ -211,8 +216,14 @@ def guardar_accion(nueva_accion):
 
 def cargar_configuracion():
     if os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE, 'r') as f:
-            return json.load(f)
+        try:
+            with open(CONFIG_FILE, 'r') as f:
+                return json.load(f)
+        except json.JSONDecodeError as e:
+            backup_file = f"{CONFIG_FILE}.bak"
+            shutil.copy2(CONFIG_FILE, backup_file)
+            print(f"\nError al cargar configuración: {e}")
+            print(f"El archivo está corrupto. Se ha creado un respaldo en '{backup_file}'.")
     return []
 
 def ver_acciones():
