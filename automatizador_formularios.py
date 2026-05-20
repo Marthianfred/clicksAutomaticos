@@ -171,6 +171,7 @@ class AutomatizadorApp:
                 except json.JSONDecodeError as e:
                     # Backup the corrupted file
                     backup_file = f"{CONFIG_FILE}.bak"
+                    import shutil
                     shutil.copy2(CONFIG_FILE, backup_file)
                     messagebox.showerror("Error de Configuración",
                                        f"El archivo de configuración está corrupto. Se ha creado un respaldo en '{backup_file}'.\n\nDetalles: {str(e)}")
